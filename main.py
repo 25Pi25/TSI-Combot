@@ -69,7 +69,7 @@ def type_matchup_calc(attacking_type, defending_type_1, defending_type_2=-1, typ
     output = attacker_to_defender_1 + attacker_to_defender_2 + attacker_to_type_ring - 6  # okay, the math on this one is wonky! we want to treat neutrality as 0, so it'll do nothing. we need to subtract each relation by 3, since that's what they have for neutrality. there's 3 relations, -3*3=-9. of course, we want to shift it back at the end, so we add 3 back. -9+3=-6
     if output > 5:  # cannot go stronger than double weakness; round down if it is.
         output = 5
-    if output < 0:  # cannot go weaker than double resist unless one of the types is an immunity (which is already accounted for); round up if it is.
+    if output <= 0:  # cannot go weaker than double resist unless one of the types is an immunity (which is already accounted for); round up if it is.
         output = 1
     return output
 
