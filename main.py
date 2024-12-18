@@ -1,8 +1,10 @@
 import json
 from dataclasses import dataclass
+
 import discord
 from discord import app_commands
 from typing import Optional
+from random import randint
 
 
 # CLIENT-SIDE CODE IS HERE
@@ -67,8 +69,8 @@ def type_matchup_calc(attacking_type, defending_type_1, defending_type_2=-1, typ
     output = attacker_to_defender_1 + attacker_to_defender_2 + attacker_to_type_ring - 6  # okay, the math on this one is wonky! we want to treat neutrality as 0, so it'll do nothing. we need to subtract each relation by 3, since that's what they have for neutrality. there's 3 relations, -3*3=-9. of course, we want to shift it back at the end, so we add 3 back. -9+3=-6
     if output > 5:  # cannot go stronger than double weakness; round down if it is.
         output = 5
-    if output < 0:  # cannot go weaker than immunity; round up if it is.
-        output = 0
+    if output < 0:  # cannot go weaker than double resist unless one of the types is an immunity (which is already accounted for); round up if it is.
+        output = 1
     return output
 
 
@@ -79,7 +81,8 @@ def single_type_calc(attacking_type, defending_type, is_type_ring, barrier, brea
     if defending_type == "":
         return -1
     else:
-        output = spreadsheet_values.index(typechart[attacking_type][defending_type])  # I have literally no clue why it isn't the other way around, but I was getting a flipped typechart.
+        output = spreadsheet_values.index(typechart[attacking_type][
+                                              defending_type])  # I have literally no clue why it isn't the other way around, but I was getting a flipped typechart.
         if is_type_ring and output >= 4:  # Type rings should not apply weaknesses; treat as neutral.
             output = 3
         if barrier and output <= 2:  # Barrier converts immunity/resistance/double-resistance into immunity.
@@ -106,11 +109,14 @@ def type_calc_words(attacking_type, defending_type_1, defending_type_2="", type_
     defending_type_1_index = type_name_to_index(defending_type_1)
     defending_type_2_index = type_name_to_index(defending_type_2)
     type_ring_index = type_name_to_index(type_ring)
+    if defending_type_1_index == defending_type_2_index:
+        return "Defending types cannot be the same."
     if attacking_type_index == -1 or defending_type_1_index == -1:  # attacking type and first defending type are not allowed to be blank; return error if it is.
         return "Attacking type / first defending type cannot be blank."
     if attacking_type_index == -2 or defending_type_1_index == -2 or defending_type_2_index == -2 or type_ring_index == -2:  # if any types are invalid, return error.
         return "Input contains an invalid type name."
-    number = type_matchup_calc(attacking_type_index, defending_type_1_index, defending_type_2_index, type_ring_index, barrier, breaker,
+    number = type_matchup_calc(attacking_type_index, defending_type_1_index, defending_type_2_index, type_ring_index,
+                               barrier, breaker,
                                sheer_force)
     words = ["is immune to", "double-resists", "resists", "is neutral to", "is weak to", "is double weak to"]
     relation = words[number]
@@ -215,6 +221,20 @@ async def type_matchup(interaction: discord.Interaction, attacking_type: str, de
     """Returns a type matchup."""
     await interaction.response.send_message(
         type_calc_words(attacking_type, defending_type_1, defending_type_2, type_ring, barrier, breaker, sheer_force))
+
+
+@client.tree.command()
+async def roll(interaction: discord.Interaction, throws: int, sides: int):
+    """Rolls dice."""
+    i = 0
+    results = []
+    while i != throws:
+        results.append(randint(1, sides))
+        i += 1
+    dice_sum = 0
+    for rolls in results:
+        dice_sum += rolls
+    await interaction.response.send_message(f"{throws}d{sides} resulted in {results} for a sum of {dice_sum}")
 
 
 client.run(TOKEN)
