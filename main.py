@@ -1,5 +1,7 @@
 import json
 from dataclasses import dataclass
+from json import JSONDecodeError
+from math import floor
 from os import walk
 
 import discord
@@ -10,11 +12,10 @@ from random import randint
 # CONSTANTS
 with open('secrets.json', 'r') as file:
     secrets = json.load(file)
-    file.close()
-
 CHARACTERS_DIR = './characters'
 TOKEN = secrets.get('token')
 GUILD_ID = secrets.get('guild')
+ADMIN_ID = secrets.get('admin')
 
 BOT_INTENTS = discord.Intents.all()
 MY_GUILD = discord.Object(id=GUILD_ID)
@@ -28,8 +29,17 @@ class Character:
     type1: str
     type2: str
     players: []
+    str_score: int
+    dex_score: int
+    con_score: int
+    int_score: int
+    wis_score: int
+    cha_score: int
+    spe_score: int
     moves: []
     traits: []
+    initiative_pending: bool
+    initiative: int
 
 
 @dataclass
@@ -47,7 +57,6 @@ class Move:
 typechart = []
 with open('typechart.csv', 'r') as typechart_csv:
     typechart_rows = typechart_csv.readlines()
-    typechart_csv.close()
 types = typechart_rows.pop(0).lower().split(",")
 types.pop(0)
 types.pop()
@@ -181,6 +190,9 @@ def title_case(input_val):
 combat_state = 0
 
 
+# CHARACTER LOADING
+
+
 def json_data_by_char_name(name: str):
     all_files = next(walk(CHARACTERS_DIR), (None, None, []))[2]  # [] if no file
     # convert all_files to lowercase
@@ -188,18 +200,27 @@ def json_data_by_char_name(name: str):
     for filename in all_files:
         all_files_lower.append(filename.lower())
     if f'{name.lower()}.json' in all_files_lower:
-        with open(all_files[all_files_lower.index(name.lower())], 'r') as char_file:
-            char_json_data = json.load(char_file)
-            char_file.close()
+        with open(f'{CHARACTERS_DIR}/' + all_files[all_files_lower.index(f'{name.lower()}.json')], 'r') as char_file:
+            try:
+                char_json_data = json.load(char_file)
+            except JSONDecodeError as e:
+                raise JSONDecodeError(f"JSON for {name} is invalid. Details: {e.args}", e.doc, e.pos)
         return char_json_data
     else:
         raise LookupError(f"JSON for character {name} could not be found.")
 
 
-def load_character_from_json(json_data):   # going to be coming back to this one a lot lmao
+def load_character_from_json_data(json_data):  # going to be coming back to this one a lot lmao
     # JSON VALIDITY CHECKS SHOULD BE HAPPENING IN THIS FUNCTION
     char = Character
     char.name = json_data.get('name')
+    char.str_score = json_data.get('str_score')
+    char.dex_score = json_data.get('dex_score')
+    char.con_score = json_data.get('con_score')
+    char.int_score = json_data.get('int_score')
+    char.wis_score = json_data.get('wis_score')
+    char.cha_score = json_data.get('cha_score')
+    char.spe_score = json_data.get('spe_score')
     return char
 
 
@@ -215,16 +236,55 @@ def load_characters_from_string(characters: str):
     character_name_list = character_string_to_list(characters)
     chars = []
     for character_name in character_name_list:
-        chars.append(load_character_by_name(character_name))
+        chars.append(load_character_from_json_by_name(character_name))
     return chars
 
 
-def load_character_by_name(character: str):
-    return load_character_from_json(json_data_by_char_name(character))
+def load_character_from_json_by_name(character: str):
+    return load_character_from_json_data(json_data_by_char_name(character))
+
+
+# STAT CALCULATIONS
+def score_to_mod(score: int, has_tag: bool = False):
+    tag_bonus = 0
+    if has_tag:
+        tag_bonus = 1
+    return floor((score + tag_bonus - 10) / 2)
+
+
+def mod_as_string(mod: int):
+    if mod == 0:
+        return ""
+    if mod > 0:
+        return f"+{str(mod)}"
+    else:
+        return str(mod)
+
+
+def calc_initiative_roll(character: Character):
+    return f'1d20{mod_as_string(score_to_mod(character.dex_score))}'
 
 
 def try_start_combat(characters: str):
-    combat_characters = load_characters_from_string(characters)
+    try:
+        combat_characters = load_characters_from_string(characters)
+        for combat_character in combat_characters:
+            combat_character.initiative_pending = True
+    except Exception as e:
+        return e.args
+
+
+def update_initiative_lobby(characters: []):
+    output = "```\nROLL INITIATIVE!\n"
+    for character in characters:
+        initiative_indicator = ""
+        if not character.initiative_pending:
+            initiative_indicator = "(!) "
+        output += f'{initiative_indicator}{character.name}: {calc_initiative_roll(character)}\n'
+    output += "Use /set_initiative once you've rolled!\n```"
+
+
+def set_char_initiative(char_name: str, initiative_value: int):
     return None
 
 
@@ -291,7 +351,7 @@ def dice_roll(throws: int, sides: int):
         return "Throws must be positive."
     if sides < 1:
         return "Sides must be 1 or more."
-    if len((str(sides)+", ") * throws) + len(str(sides*throws)) + len(extra_output_text) > 2000:
+    if len((str(sides) + ", ") * throws) + len(str(sides * throws)) + len(extra_output_text) > 2000:
         return "Too big!"
     while i != throws:
         results.append(randint(1, sides))
@@ -306,6 +366,19 @@ def dice_roll(throws: int, sides: int):
 async def roll(interaction: discord.Interaction, throws: int, sides: int):
     """Rolls dice."""
     print(f'{interaction.user.display_name} rolled {throws}d{sides}')
-    await interaction.response.send_message(dice_roll(throws,sides))
+    await interaction.response.send_message(dice_roll(throws, sides))
+
+
+@client.tree.command()
+async def start_combat(interaction: discord.Interaction, characters: str):
+    if interaction.user.id != ADMIN_ID:
+        await interaction.response.send_message("You are not an admin!")
+    else:
+        try_start_combat_output = try_start_combat(characters)
+        if try_start_combat_output is not None:
+            await interaction.response.send_message(try_start_combat_output)
+        else:
+            await interaction.response.send_message("Combat started!")
+
 
 client.run(TOKEN)
