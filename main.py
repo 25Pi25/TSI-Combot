@@ -1,10 +1,23 @@
 import json
 from dataclasses import dataclass
+from os import walk
 
 import discord
 from discord import app_commands
 from typing import Optional
 from random import randint
+
+# CONSTANTS
+with open('secrets.json', 'r') as file:
+    secrets = json.load(file)
+    file.close()
+
+CHARACTERS_DIR = './characters'
+TOKEN = secrets.get('token')
+GUILD_ID = secrets.get('guild')
+
+BOT_INTENTS = discord.Intents.all()
+MY_GUILD = discord.Object(id=GUILD_ID)
 
 
 # CLIENT-SIDE CODE IS HERE
@@ -32,9 +45,9 @@ class Move:
 
 
 typechart = []
-with open('typechart.csv', 'r') as file:
-    typechart_rows = file.readlines()
-    file.close()
+with open('typechart.csv', 'r') as typechart_csv:
+    typechart_rows = typechart_csv.readlines()
+    typechart_csv.close()
 types = typechart_rows.pop(0).lower().split(",")
 types.pop(0)
 types.pop()
@@ -44,11 +57,11 @@ for row in typechart_rows:
         if value in ["", "0", "1/2", "2", "4"]:
             typechart_row.append(value)
     typechart.append(typechart_row)
-print(types)
-print(typechart)
 
 
-# ALL THE DISCORD CODE GOES BELOW
+# TYPE CALCULATION CODE
+
+
 def type_matchup_calc(attacking_type, defending_type_1, defending_type_2=-1, type_ring=-1, barrier=False, breaker=False,
                       sheer_force=False):
     attacker_to_defender_1 = single_type_calc(attacking_type, defending_type_1, False, barrier, breaker,
@@ -164,17 +177,61 @@ def title_case(input_val):
     return output
 
 
-# Open the secrets.json file and load the data
-with open('secrets.json', 'r') as file:
-    data = json.load(file)
-    file.close()
+# COMBAT STATES: 0 = not in combat, 1 = initiative pending
+combat_state = 0
 
-# Access the 'token' value
-TOKEN = data.get('token')
-GUILD = data.get('guild')
 
-myIntents = discord.Intents.all()
-MY_GUILD = discord.Object(id=GUILD)  # replace with your guild id
+def json_data_by_char_name(name: str):
+    all_files = next(walk(CHARACTERS_DIR), (None, None, []))[2]  # [] if no file
+    # convert all_files to lowercase
+    all_files_lower = []
+    for filename in all_files:
+        all_files_lower.append(filename.lower())
+    if f'{name.lower()}.json' in all_files_lower:
+        with open(all_files[all_files_lower.index(name.lower())], 'r') as char_file:
+            char_json_data = json.load(char_file)
+            char_file.close()
+        return char_json_data
+    else:
+        return "Name not in characters directory"
+
+
+def load_character_from_json(json_data):   # going to be coming back to this one a lot lmao
+    char = Character
+    char.name = json_data.get('name')
+    return char
+
+
+def character_string_to_list(characters: str):
+    character_string_list = characters.split(",")
+    character_name_list = []
+    for character_name in character_string_list:
+        character_name_list.append(character_name.replace(" ", ""))
+    return character_name_list
+
+
+def load_characters_from_string(characters: str):
+    character_name_list = character_string_to_list(characters)
+    chars = []
+    for character_name in character_name_list:
+        chars.append(load_character_by_name(character_name))
+    return chars
+
+
+def load_character_by_name(character: str):
+    return load_character_from_json(json_data_by_char_name(character))
+
+
+def try_start_combat(characters: str):
+    combat_characters = load_characters_from_string(characters)
+    return None
+
+
+def start_combat():
+    return None
+
+
+# ALL THE DISCORD CODE GOES BELOW
 
 
 class MyClient(discord.Client):
@@ -198,7 +255,7 @@ class MyClient(discord.Client):
         await self.tree.sync(guild=MY_GUILD)
 
 
-client = MyClient(intents=myIntents)
+client = MyClient(intents=BOT_INTENTS)
 
 
 @client.event
@@ -235,6 +292,5 @@ async def roll(interaction: discord.Interaction, throws: int, sides: int):
     for rolls in results:
         dice_sum += rolls
     await interaction.response.send_message(f"{throws}d{sides} resulted in {results} for a sum of {dice_sum}")
-
 
 client.run(TOKEN)
