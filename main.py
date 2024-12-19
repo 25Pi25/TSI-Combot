@@ -193,10 +193,11 @@ def json_data_by_char_name(name: str):
             char_file.close()
         return char_json_data
     else:
-        return "Name not in characters directory"
+        raise LookupError(f"JSON for character {name} could not be found.")
 
 
 def load_character_from_json(json_data):   # going to be coming back to this one a lot lmao
+    # JSON VALIDITY CHECKS SHOULD BE HAPPENING IN THIS FUNCTION
     char = Character
     char.name = json_data.get('name')
     return char
@@ -280,17 +281,31 @@ async def type_matchup(interaction: discord.Interaction, attacking_type: str, de
         type_calc_words(attacking_type, defending_type_1, defending_type_2, type_ring, barrier, breaker, sheer_force))
 
 
-@client.tree.command()
-async def roll(interaction: discord.Interaction, throws: int, sides: int):
-    """Rolls dice."""
+extra_output_text = "d resulted in[]for a sum of"
+
+
+def dice_roll(throws: int, sides: int):
     i = 0
     results = []
+    if throws <= 0:
+        return "Throws must be positive."
+    if sides < 1:
+        return "Sides must be 1 or more."
+    if len((str(sides)+", ") * throws) + len(str(sides*throws)) + len(extra_output_text) > 2000:
+        return "Too big!"
     while i != throws:
         results.append(randint(1, sides))
         i += 1
     dice_sum = 0
     for rolls in results:
         dice_sum += rolls
-    await interaction.response.send_message(f"{throws}d{sides} resulted in {results} for a sum of {dice_sum}")
+    return f"{throws}d{sides} resulted in {results} for a sum of {dice_sum}"
+
+
+@client.tree.command()
+async def roll(interaction: discord.Interaction, throws: int, sides: int):
+    """Rolls dice."""
+    print(f'{interaction.user.display_name} rolled {throws}d{sides}')
+    await interaction.response.send_message(dice_roll(throws,sides))
 
 client.run(TOKEN)
