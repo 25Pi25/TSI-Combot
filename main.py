@@ -25,6 +25,7 @@ MY_GUILD = discord.Object(id=GUILD_ID)
 @dataclass
 class Character:
     name: str
+    filename: str
     level: int
     type1: str
     type2: str
@@ -210,10 +211,11 @@ def json_data_by_char_name(name: str):
         raise LookupError(f"JSON for character {name} could not be found.")
 
 
-def load_character_from_json_data(json_data):  # going to be coming back to this one a lot lmao
+def load_character_from_json_data(json_data, filename: str):  # going to be coming back to this one a lot lmao
     # JSON VALIDITY CHECKS SHOULD BE HAPPENING IN THIS FUNCTION
     char = Character
     char.name = json_data.get('name')
+    char.filename = filename.lower()
     char.str_score = json_data.get('str_score')
     char.dex_score = json_data.get('dex_score')
     char.con_score = json_data.get('con_score')
@@ -241,7 +243,14 @@ def load_characters_from_string(characters: str):
 
 
 def load_character_from_json_by_name(character: str):
-    return load_character_from_json_data(json_data_by_char_name(character))
+    return load_character_from_json_data(json_data_by_char_name(character), character)
+
+
+def character_index_from_list_by_name(name: str, character_list: []):
+    for character in character_list:
+        if character.filename == name.lower():
+            return character_list.index(character)
+    raise LookupError(f"Character {name} could not be found in the specified character list.")
 
 
 # STAT CALCULATIONS
@@ -265,13 +274,23 @@ def calc_initiative_roll(character: Character):
     return f'1d20{mod_as_string(score_to_mod(character.dex_score))}'
 
 
+combat_characters = []
+
+
 def try_start_combat(characters: str):
     try:
+        global combat_characters
+        global combat_state
         combat_characters = load_characters_from_string(characters)
         for combat_character in combat_characters:
             combat_character.initiative_pending = True
+        combat_state = 1
     except Exception as e:
         return e.args
+
+
+initiative_lobby_new_message = ""
+trigger_initiative_lobby_update = False
 
 
 def update_initiative_lobby(characters: []):
@@ -282,10 +301,18 @@ def update_initiative_lobby(characters: []):
             initiative_indicator = "(!) "
         output += f'{initiative_indicator}{character.name}: {calc_initiative_roll(character)}\n'
     output += "Use /set_initiative once you've rolled!\n```"
+    global initiative_lobby_new_message
+    global trigger_initiative_lobby_update
+    initiative_lobby_new_message = output
+    trigger_initiative_lobby_update = True
 
 
 def set_char_initiative(char_name: str, initiative_value: int):
-    return None
+    global combat_characters
+    index = character_index_from_list_by_name(char_name, combat_characters)
+    combat_characters[index].initiative = initiative_value
+    combat_characters[index].initiative_pending = False
+    update_initiative_lobby(combat_characters)
 
 
 def start_combat():
@@ -370,15 +397,29 @@ async def roll(interaction: discord.Interaction, throws: int, sides: int):
 
 
 @client.tree.command()
+async def set_initiative(interaction: discord.Interaction, character_name: str, initiative: int):
+    set_char_initiative(character_name, initiative)
+    await interaction.response.send_message("Initiative set! (this message will be private when i figure out how)")
+
+
+@client.tree.command()
 async def start_combat(interaction: discord.Interaction, characters: str):
     if interaction.user.id != ADMIN_ID:
         await interaction.response.send_message("You are not an admin!")
     else:
+        global trigger_initiative_lobby_update
+        global initiative_lobby_new_message
+        global combat_characters
+        global combat_state
         try_start_combat_output = try_start_combat(characters)
         if try_start_combat_output is not None:
             await interaction.response.send_message(try_start_combat_output)
         else:
             await interaction.response.send_message("Combat started!")
-
+            update_initiative_lobby(combat_characters)
+            while combat_state == 1:
+                if trigger_initiative_lobby_update:
+                    trigger_initiative_lobby_update = False
+                    await interaction.edit_original_response(content=initiative_lobby_new_message)
 
 client.run(TOKEN)
