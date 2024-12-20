@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from dataclasses import field
 from json import JSONDecodeError
 from math import floor
 from os import walk
@@ -20,27 +21,30 @@ ADMIN_ID = secrets.get('admin')
 BOT_INTENTS = discord.Intents.all()
 MY_GUILD = discord.Object(id=GUILD_ID)
 
+CHARACTER_NOT_OWNED = "This is not your character!"
+
 
 # CLIENT-SIDE CODE IS HERE
 @dataclass
 class Character:
-    name: str
-    filename: str
-    level: int
-    type1: str
-    type2: str
-    players: []
-    str_score: int
-    dex_score: int
-    con_score: int
-    int_score: int
-    wis_score: int
-    cha_score: int
-    spe_score: int
-    moves: []
-    traits: []
-    initiative_pending: bool
-    initiative: int
+    name: str = ""
+    filename: str = ""
+    level: int = -1
+    type1: str = ""
+    type2: str = ""
+    players: [] = field(default_factory=list)
+    str_score: int = -1
+    dex_score: int = -1
+    con_score: int = -1
+    int_score: int = -1
+    wis_score: int = -1
+    cha_score: int = -1
+    spe_score: int = -1
+    moves: [] = field(default_factory=list)
+    traits: [] = field(default_factory=list)
+    initiative_pending: bool = False
+    initiative: int = -1
+    acted_this_turn: bool = False
 
 
 @dataclass
@@ -223,6 +227,7 @@ def load_character_from_json_data(json_data, filename: str):  # going to be comi
     char.wis_score = json_data.get('wis_score')
     char.cha_score = json_data.get('cha_score')
     char.spe_score = json_data.get('spe_score')
+    char.players = json_data.get('players')
     return char
 
 
@@ -238,7 +243,11 @@ def load_characters_from_string(characters: str):
     character_name_list = character_string_to_list(characters)
     chars = []
     for character_name in character_name_list:
-        chars.append(load_character_from_json_by_name(character_name))
+        char = load_character_from_json_by_name(character_name)
+        print(char.name)
+        chars.append(char)
+    for character in chars:
+        print(character.name)
     return chars
 
 
@@ -246,11 +255,11 @@ def load_character_from_json_by_name(character: str):
     return load_character_from_json_data(json_data_by_char_name(character), character)
 
 
-def character_index_from_list_by_name(name: str, character_list: []):
+def character_index_from_list_by_name(filename: str, character_list: []):
     for character in character_list:
-        if character.filename == name.lower():
+        if character.filename == filename.lower():
             return character_list.index(character)
-    raise LookupError(f"Character {name} could not be found in the specified character list.")
+    raise LookupError(f"Character {filename} could not be found in the specified character list.")
 
 
 # STAT CALCULATIONS
@@ -289,22 +298,27 @@ def try_start_combat(characters: str):
         return e.args
 
 
-initiative_lobby_new_message = ""
-trigger_initiative_lobby_update = False
+initiative_lobby_message = discord.Message
 
 
-def update_initiative_lobby(characters: []):
+async def update_initiative_lobby():
+    global combat_characters
+    global initiative_lobby_message
     output = "```\nROLL INITIATIVE!\n"
-    for character in characters:
+    for character in combat_characters:
         initiative_indicator = ""
         if not character.initiative_pending:
             initiative_indicator = "(!) "
         output += f'{initiative_indicator}{character.name}: {calc_initiative_roll(character)}\n'
     output += "Use /set_initiative once you've rolled!\n```"
-    global initiative_lobby_new_message
-    global trigger_initiative_lobby_update
-    initiative_lobby_new_message = output
-    trigger_initiative_lobby_update = True
+    await initiative_lobby_message.edit(content=output)
+    done_waiting = True
+    for character in combat_characters:
+        if character.initiative_pending:
+            done_waiting = False
+    if done_waiting:
+        global initiative_order
+        await advance_turn()
 
 
 def set_char_initiative(char_name: str, initiative_value: int):
@@ -312,12 +326,15 @@ def set_char_initiative(char_name: str, initiative_value: int):
     index = character_index_from_list_by_name(char_name, combat_characters)
     combat_characters[index].initiative = initiative_value
     combat_characters[index].initiative_pending = False
-    update_initiative_lobby(combat_characters)
 
 
 def start_combat():
     return None
 
+
+def character_owned_by_player(interaction: discord.Interaction, name: str):
+    global combat_characters
+    return interaction.user.id in combat_characters[character_index_from_list_by_name(name, combat_characters)].players
 
 # ALL THE DISCORD CODE GOES BELOW
 
@@ -398,8 +415,12 @@ async def roll(interaction: discord.Interaction, throws: int, sides: int):
 
 @client.tree.command()
 async def set_initiative(interaction: discord.Interaction, character_name: str, initiative: int):
-    set_char_initiative(character_name, initiative)
-    await interaction.response.send_message("Initiative set! (this message will be private when i figure out how)")
+    if character_owned_by_player(interaction, character_name):
+        set_char_initiative(character_name, initiative)
+        await update_initiative_lobby()
+        await interaction.response.send_message("Initiative set!")
+    else:
+        await interaction.response.send_message(CHARACTER_NOT_OWNED)
 
 
 @client.tree.command()
@@ -407,19 +428,79 @@ async def start_combat(interaction: discord.Interaction, characters: str):
     if interaction.user.id != ADMIN_ID:
         await interaction.response.send_message("You are not an admin!")
     else:
-        global trigger_initiative_lobby_update
-        global initiative_lobby_new_message
-        global combat_characters
-        global combat_state
         try_start_combat_output = try_start_combat(characters)
         if try_start_combat_output is not None:
             await interaction.response.send_message(try_start_combat_output)
         else:
+            global initiative_lobby_message
             await interaction.response.send_message("Combat started!")
-            update_initiative_lobby(combat_characters)
-            while combat_state == 1:
-                if trigger_initiative_lobby_update:
-                    trigger_initiative_lobby_update = False
-                    await interaction.edit_original_response(content=initiative_lobby_new_message)
+            initiative_lobby_message = await interaction.channel.send("```\nROLL INITIATIVE!\n```")
+            await update_initiative_lobby()
+
+
+acting_character = Character()
+round_number = 0
+initiative_order = []
+combat_channel = discord.TextChannel
+
+
+def determine_initiative_order():
+    global initiative_order
+    new_initiative_order = []
+    # SORT TURN ORDER BY CHARACTER INITIATIVE
+    while len(new_initiative_order) != len(combat_characters):
+        highest_init = -999
+        highest_init_index = -1
+        for character in combat_characters:
+            if character.initiative > highest_init:
+                highest_init = character.initiative
+                highest_init_index = combat_characters.index(character)
+        new_initiative_order.append(combat_characters[highest_init_index])
+    initiative_order = new_initiative_order
+
+
+def determine_next_to_act():
+    global acting_character
+    all_characters_acted = True
+    for character in initiative_order:
+        if not character.acted_this_turn:
+            all_characters_acted = False
+            acting_character = character
+    if all_characters_acted:
+        advance_round()
+
+
+@client.tree.command()
+async def end_turn(interaction: discord.Interaction):
+    if character_owned_by_player(interaction, acting_character.filename):
+        acting_character.acted_this_turn = True
+        await advance_turn()
+    else:
+        await interaction.response.send_message(CHARACTER_NOT_OWNED)
+
+
+def advance_round():
+    global round_number
+    round_number += 1
+    for character in combat_characters:
+        character.acted_this_turn = False
+
+
+async def advance_turn():
+    determine_initiative_order()
+    determine_next_to_act()
+    output = f"```\nROUND {round_number}\n"
+    for character in initiative_order:
+        if character == acting_character:
+            output += "! "
+        output += f"{character.initiative} - {character.name}\n"
+    output += f"```\n{acting_character.name}'s turn! "
+    for player in acting_character.players:
+        output += f"<@{str(player)}>"
+        if player != acting_character.players[-1]:
+            output += ", "
+    output += ")"
+    await combat_channel.send(output)
+
 
 client.run(TOKEN)
