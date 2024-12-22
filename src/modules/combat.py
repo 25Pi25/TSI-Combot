@@ -94,3 +94,4 @@ async def start_combat(interaction: Interaction, characters: str):
     initiative_list.sort(key=lambda a: a[1], reverse=True)
     initiative_string = "\n".join(f"{char.name}: {initiative}" for char, initiative in initiative_list)
     await interaction.channel.send(content=f"```\n{initiative_string}```")
+    # TODO: continue battle turns from here...
