@@ -1,76 +1,96 @@
+import discord.ui
 from discord import Interaction
 
+from src.characters import load_character
 from src.constants import client, ADMIN_ID
-from src.utils import calc_initiative_roll
-
-combat_state = 0
-combat_characters = []
+from src.tsi_types import Character
+from src.utils import title_case
 
 
-def try_start_combat(characters: str):
-    try:
-        global combat_characters
-        global combat_state
-        combat_characters = load_characters_from_string(characters)
-        for combat_character in combat_characters:
-            combat_character.initiative_pending = True
-        combat_state = 1
-    except Exception as e:
-        return e.args
+class InitiativeModal(discord.ui.Modal, title="Set Initiative"):
+    def __init__(self, character_names: list[str]):
+        super().__init__()
+        self.character_names = [name.lower() for name in character_names]
+
+    character_name = discord.ui.TextInput(
+        label="Character Name",
+        placeholder="Name goes here..."
+    )
+    initiative = discord.ui.TextInput(
+        label="Total Initiative",
+        placeholder="Enter a number here..."
+    )
+
+    is_valid = False
+
+    async def on_submit(self, interaction: Interaction) -> None:
+        # on submit will only validate the modal. the view awaiting a response will handle other logic
+        if self.character_name.value.lower() not in self.character_names:
+            await interaction.response.send_message("Character does not exist. Try searching again.", ephemeral=True)
+            raise Exception()
+        if not self.initiative.value.isdigit():
+            await interaction.response.send_message("Initiative is not a number. Try again.", ephemeral=True)
+            raise Exception()
+        self.is_valid = True
+        self.stop()
+        await interaction.response.send_message(
+            f"{self.character_name.value}'s initiative set to {self.initiative.value}.", ephemeral=True)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        if interaction.response.is_done():
+            return
+        await interaction.response.send_message(f"Couldn't set initiative. Try again.", ephemeral=True)
+        self.stop()
 
 
-initiative_lobby_new_message = ""
-trigger_initiative_lobby_update = False
+class InitiativeView(discord.ui.view.View):
+    is_full = False
 
+    def __init__(self, characters: list[Character]):
+        super().__init__()
+        self.characters = characters
+        self.initiatives: dict[Character, int] = dict()
 
-def update_initiative_lobby(characters: []):
-    output = "```\nROLL INITIATIVE!\n"
-    for character in characters:
-        initiative_indicator = ""
-        if not character.initiative_pending:
-            initiative_indicator = "(!) "
-        output += f'{initiative_indicator}{character.name}: {calc_initiative_roll(character)}\n'
-    output += "Use /set_initiative once you've rolled!\n```"
-    global initiative_lobby_new_message
-    global trigger_initiative_lobby_update
-    initiative_lobby_new_message = output
-    trigger_initiative_lobby_update = True
+    @discord.ui.button(label="Set initiative!", style=discord.ButtonStyle.success)
+    async def on_success_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = InitiativeModal([char.name for char in self.characters])
+        await interaction.response.send_modal(modal)
+        await modal.wait()
+        if not modal.is_valid:
+            return
+        target_name = title_case(modal.character_name.value)
+        target_char = next(char for char in self.characters if char.name == target_name)
+        self.initiatives[target_char] = int(modal.initiative.value)
+        if len(self.initiatives) == len(self.characters):
+            self.is_full = True
+            self.stop()
 
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
+    async def on_danger_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if str(interaction.user.id) != ADMIN_ID:
+            await interaction.response.send_message("You are not an admin!", ephemeral=True)
+            return
+        await interaction.response.send_message("Cancelling battle...", ephemeral=True)
+        self.stop()
 
-def set_char_initiative(char_name: str, initiative_value: int):
-    global combat_characters
-    index = character_index_from_list_by_name(char_name, combat_characters)
-    combat_characters[index].initiative = initiative_value
-    combat_characters[index].initiative_pending = False
-    update_initiative_lobby(combat_characters)
-
-
-def start_combat():
-    return None
-
-
-@client.tree.command()
-async def set_initiative(interaction: Interaction, character_name: str, initiative: int):
-    set_char_initiative(character_name, initiative)
-    await interaction.response.send_message("Initiative set!", ephemeral=True)
 
 
 @client.tree.command()
 async def start_combat(interaction: Interaction, characters: str):
     if str(interaction.user.id) != ADMIN_ID:
-        await interaction.response.send_message("You are not an admin!")
-    else:
-        global trigger_initiative_lobby_update
-        global initiative_lobby_new_message
-        global combat_characters
-        global combat_state
-        try_start_combat_output = try_start_combat(characters)
-        if try_start_combat_output is not None:
-            await interaction.response.send_message(try_start_combat_output)
-        else:
-            await interaction.response.send_message("Combat started!")
-            update_initiative_lobby(combat_characters)
-            while combat_state == 1:
-                if trigger_initiative_lobby_update:
-                    trigger_initiative_lobby_update = False
-                    await interaction.edit_original_response(content=initiative_lobby_new_message)
+        await interaction.response.send_message("You are not an admin!", ephemeral=True)
+        return
+    # TODO: prevent duplicates from being listed
+    character_list = [load_character(name.strip()) for name in characters.split(",")]
+    initiative_view = InitiativeView(character_list)
+    await interaction.response.send_message("Combat started! Roll initiative!",
+                                            view=initiative_view)
+    await initiative_view.wait()
+    await interaction.edit_original_response(view=None)
+    if not initiative_view.is_full:
+        await interaction.edit_original_response(content="Battle cancelled.")
+        return
+    initiative_list = list(initiative_view.initiatives.items())
+    initiative_list.sort(key=lambda a: a[1], reverse=True)
+    initiative_string = "\n".join(f"{char.name}: {initiative}" for char, initiative in initiative_list)
+    await interaction.channel.send(content=f"```\n{initiative_string}```")

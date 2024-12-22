@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 import pydantic
+from pydantic import BaseModel
 
 
 # TODO: having a general type file will be worse when these objects gain their own methods and attributes, so they may
@@ -102,11 +103,9 @@ class Move:
     tactics: list[Tactic]
 
 
-# Extending BaseModel means this class can be JSON validated
 @dataclass
-class Character(pydantic.BaseModel):
+class Character(BaseModel):
     name: str
-    filename: str
     level: int
     type1: Type
     type2: Type | None
@@ -121,3 +120,9 @@ class Character(pydantic.BaseModel):
     moves: list[Move]
     # TODO: add functionality to this maybe idk
     traits: list[str]
+
+    def __eq__(self, other):
+        return self.name == other.name
+
+    def __hash__(self):
+        return hash(self.name)
