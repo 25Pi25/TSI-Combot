@@ -1,10 +1,17 @@
 import math
 
+from discord import User, Member
+
+from src.constants import ADMIN_ID
 from tsi_types import Type, Character
 
 
 def title_case(string: str) -> str:
     return string[0].upper() + string[1:].lower()
+
+
+def is_admin(user: User | Member) -> bool:
+    return user.id == ADMIN_ID
 
 
 def load_typechart() -> dict[Type, dict[Type, float]]:

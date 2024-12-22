@@ -4,7 +4,7 @@ from discord import Interaction
 from src.characters import load_character
 from src.constants import client, ADMIN_ID
 from src.tsi_types import Character
-from src.utils import title_case
+from src.utils import title_case, is_admin
 
 
 class InitiativeModal(discord.ui.Modal, title="Set Initiative"):
@@ -67,17 +67,16 @@ class InitiativeView(discord.ui.view.View):
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
     async def on_danger_click(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if str(interaction.user.id) != ADMIN_ID:
+        if not is_admin(interaction.user):
             await interaction.response.send_message("You are not an admin!", ephemeral=True)
             return
         await interaction.response.send_message("Cancelling battle...", ephemeral=True)
         self.stop()
 
 
-
 @client.tree.command()
 async def start_combat(interaction: Interaction, characters: str):
-    if str(interaction.user.id) != ADMIN_ID:
+    if not is_admin(interaction.user):
         await interaction.response.send_message("You are not an admin!", ephemeral=True)
         return
     # TODO: prevent duplicates from being listed
