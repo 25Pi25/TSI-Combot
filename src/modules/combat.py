@@ -1,7 +1,6 @@
 from discord import Interaction
 
 from src.constants import client, ADMIN_ID
-from src.characters import character_index_from_list_by_name, load_characters_from_string
 from src.utils import calc_initiative_roll
 
 combat_state = 0

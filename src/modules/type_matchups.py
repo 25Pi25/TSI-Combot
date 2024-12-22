@@ -84,12 +84,17 @@ def get_matchup_description(attacking_type: Type, defending_type_1: Type, defend
 
 
 @client.tree.command()
-async def type_matchup(interaction: Interaction, attacking_type: str, defending_type_1: str,
-                       defending_type_2: Optional[str] = "", type_ring: Optional[str] = "",
+async def type_matchup(interaction: Interaction, attacking_type: Type, defending_type_1: Type,
+                       defending_type_2: Optional[Type] = "", type_ring: Optional[Type] = "",
                        barrier: Optional[bool] = False,
                        breaker: Optional[bool] = False, sheer_force: Optional[bool] = False):
     """Returns a type matchup."""
-    await interaction.response.send_message(
-        get_matchup_description(Type(attacking_type), Type(defending_type_1),
-                                defending_type_2 and Type(defending_type_2),
-                                type_ring, barrier, breaker, sheer_force))
+    try:
+        attacker = Type(title_case(attacking_type))
+        defender_1 = Type(title_case(defending_type_1))
+        defender_2 = defending_type_2 and Type(title_case(defending_type_2))
+        description = get_matchup_description(attacker, defender_1, defender_2, type_ring,
+                                              barrier, breaker, sheer_force)
+        await interaction.response.send_message(description)
+    except ValueError as ve:
+        await interaction.response.send_message(f"Invalid: {ve.args}")

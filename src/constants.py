@@ -1,4 +1,3 @@
-# CONSTANTS
 import os
 
 from discord import app_commands
@@ -10,7 +9,7 @@ from src.utils import load_typechart
 load_dotenv()
 
 CHARACTERS_DIR = '../characters'
-# using .env particularly because i prefer it and its more standardized
+# using .env particularly because I prefer it and it's more standardized
 TOKEN = os.getenv('TOKEN')
 GUILD_ID = os.getenv('GUILD')
 ADMIN_ID = os.getenv('ADMIN')
