@@ -26,7 +26,7 @@ def dice_roll(throws: int, sides: int):
 
 
 @client.tree.command()
-async def roll(interaction: Interaction, throws: int, sides: int):
+async def roll_dice(interaction: Interaction, throws: int, sides: int):
     """Rolls dice."""
     print(f'{interaction.user.display_name} rolled {throws}d{sides}')
     # I should probably stop throwing random numbers out there but ideally defer this bc rolls take time to compute

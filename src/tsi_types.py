@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
 
-import pydantic
 from pydantic import BaseModel
 
 

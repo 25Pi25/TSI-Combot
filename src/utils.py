@@ -3,7 +3,7 @@ import math
 from discord import User, Member
 
 from src.constants import ADMIN_ID
-from tsi_types import Type, Character
+from tsi_types import Character
 
 
 def title_case(string: str) -> str:
@@ -11,30 +11,7 @@ def title_case(string: str) -> str:
 
 
 def is_admin(user: User | Member) -> bool:
-    return user.id == ADMIN_ID
-
-
-def load_typechart() -> dict[Type, dict[Type, float]]:
-    """
-    Loads the typechart CSV into a data structure.
-    :return: A dictionary of attacking types, to a dictionary of defending types to their multiplier
-    """
-    result = dict()
-    with open('../typechart.csv', 'r') as typechart_csv:
-        typechart_rows = typechart_csv.readlines()
-    # We want to know the index of every type for the csv ONLY in this instance
-    # After that, we never have to keep track of index when dealing with the typechart
-    # Additionally we are casting str to Type because we know the typechart
-    type_row: list[Type] = [Type(cell) for cell in typechart_rows[0].strip().split(",")[1:]]
-    for row in typechart_rows[1:]:
-        type_matchups: dict[Type, float] = dict()
-        this_type, *matchup_values = row.strip().split(",")
-        # Skipping the first item because it's the attacker, and zipping to keep track of the defending type
-        for defender_type, value in zip(type_row, matchup_values):
-            # "or 1" acts as a default value when the string is empty
-            type_matchups[defender_type] = float(value or 1)
-        result[this_type] = type_matchups
-    return result
+    return str(user.id) == ADMIN_ID
 
 
 def score_to_mod(score: int, has_tag: bool = False):
